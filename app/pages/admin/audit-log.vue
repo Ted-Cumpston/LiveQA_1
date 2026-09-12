@@ -28,7 +28,10 @@ const ACTION_LABELS: Record<string, string> = {
   event_manager_assignment_removed: 'Event Manager assignment removed',
   reply_soft_deleted: 'Reply deleted',
   reply_restored: 'Reply restored',
-  reply_permanently_deleted: 'Reply permanently deleted'
+  reply_permanently_deleted: 'Reply permanently deleted',
+  attachment_soft_deleted: 'Attachment deleted',
+  attachment_restored: 'Attachment restored',
+  attachment_permanently_deleted: 'Attachment permanently deleted'
 }
 
 function actionLabel(action: string): string {

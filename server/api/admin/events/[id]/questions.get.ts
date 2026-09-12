@@ -93,6 +93,35 @@ export default defineEventHandler(async (event) => {
     map.set(r.question_id, list)
   }
 
+  const { data: attachments } = await supabase
+    .from('attachments')
+    .select('id, question_id, storage_path, mime_type, size_bytes, created_at, deleted_at')
+    .in('question_id', questionIds.length ? questionIds : [''])
+    .order('created_at', { ascending: true })
+
+  const attachmentPaths = (attachments ?? []).map(a => a.storage_path)
+  const { data: signedAttachmentUrls } = attachmentPaths.length
+    ? await supabase.storage.from('question-attachments').createSignedUrls(attachmentPaths, 3600)
+    : { data: [] }
+
+  const attachmentSignedUrlByPath = new Map((signedAttachmentUrls ?? []).map(s => [s.path, s.signedUrl]))
+
+  const activeAttachmentsByQuestionId = new Map<string, { id: string, mimeType: string, sizeBytes: number, viewUrl: string | null, createdAt: string }[]>()
+  const deletedAttachmentsByQuestionId = new Map<string, { id: string, mimeType: string, sizeBytes: number, viewUrl: string | null, createdAt: string }[]>()
+  for (const a of attachments ?? []) {
+    const row = {
+      id: a.id,
+      mimeType: a.mime_type,
+      sizeBytes: a.size_bytes,
+      viewUrl: attachmentSignedUrlByPath.get(a.storage_path) ?? null,
+      createdAt: a.created_at
+    }
+    const map = a.deleted_at ? deletedAttachmentsByQuestionId : activeAttachmentsByQuestionId
+    const list = map.get(a.question_id) ?? []
+    list.push(row)
+    map.set(a.question_id, list)
+  }
+
   const toRow = (q: typeof questions[number]) => ({
     id: q.id,
     text: q.text,
@@ -104,7 +133,9 @@ export default defineEventHandler(async (event) => {
     displayName: submitterNameById.get(q.attendee_id) ?? null,
     revisions: revisionsByQuestionId.get(q.id) ?? [],
     replies: activeRepliesByQuestionId.get(q.id) ?? [],
-    deletedReplies: deletedRepliesByQuestionId.get(q.id) ?? []
+    deletedReplies: deletedRepliesByQuestionId.get(q.id) ?? [],
+    attachments: activeAttachmentsByQuestionId.get(q.id) ?? [],
+    deletedAttachments: deletedAttachmentsByQuestionId.get(q.id) ?? []
   })
 
   const result = questions.filter(q => !q.deleted_at).map(toRow)

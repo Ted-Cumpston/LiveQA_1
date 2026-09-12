@@ -215,6 +215,14 @@ interface AdminReplyRow {
   createdAt: string
 }
 
+interface AdminAttachmentRow {
+  id: string
+  mimeType: string
+  sizeBytes: number
+  viewUrl: string | null
+  createdAt: string
+}
+
 interface AdminQuestionRow {
   id: string
   text: string
@@ -227,6 +235,8 @@ interface AdminQuestionRow {
   revisions: QuestionRevision[]
   replies: AdminReplyRow[]
   deletedReplies: AdminReplyRow[]
+  attachments: AdminAttachmentRow[]
+  deletedAttachments: AdminAttachmentRow[]
 }
 
 interface QuestionsResponse {
@@ -253,6 +263,12 @@ interface ReplyActionResponse {
   error: string | null
 }
 
+interface AttachmentActionResponse {
+  success: boolean
+  data: { attachmentId: string } | null
+  error: string | null
+}
+
 const questions = ref<AdminQuestionRow[]>([])
 const deletedQuestions = ref<AdminQuestionRow[]>([])
 const questionsError = ref<string | null>(null)
@@ -262,6 +278,7 @@ const savingQuestionId = ref<string | null>(null)
 const expandedRevisionsId = ref<string | null>(null)
 const questionActionId = ref<string | null>(null)
 const replyActionId = ref<string | null>(null)
+const attachmentActionId = ref<string | null>(null)
 
 async function fetchQuestions() {
   const { data: { session } } = await supabase.auth.getSession()
@@ -371,6 +388,51 @@ function permanentlyDeleteReply(reply: AdminReplyRow) {
   const confirmed = window.confirm(`Permanently delete "${reply.text}"? This cannot be undone.`)
   if (!confirmed) return
   performReplyAction('permanent-delete', reply.id)
+}
+
+async function performAttachmentAction(routeName: 'soft-delete' | 'restore' | 'permanent-delete', attachmentId: string) {
+  questionsError.value = null
+  attachmentActionId.value = attachmentId
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      questionsError.value = 'Your session expired. Please log in again.'
+      return
+    }
+
+    const response = await $fetch<AttachmentActionResponse>(`/api/admin/events/${eventId}/attachments/${routeName}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: { attachmentId }
+    })
+
+    if (!response.success) {
+      questionsError.value = response.error ?? 'Something went wrong. Please try again.'
+      return
+    }
+
+    await fetchQuestions()
+  } catch (err) {
+    const data = (err as { data?: AttachmentActionResponse })?.data
+    questionsError.value = data?.error ?? 'Something went wrong. Please try again.'
+  } finally {
+    attachmentActionId.value = null
+  }
+}
+
+function deleteAttachment(attachmentId: string) {
+  performAttachmentAction('soft-delete', attachmentId)
+}
+
+function restoreAttachment(attachmentId: string) {
+  performAttachmentAction('restore', attachmentId)
+}
+
+function permanentlyDeleteAttachment(attachment: AdminAttachmentRow) {
+  const confirmed = window.confirm(`Permanently delete this ${attachment.mimeType} attachment? This cannot be undone.`)
+  if (!confirmed) return
+  performAttachmentAction('permanent-delete', attachment.id)
 }
 
 function startEditingQuestion(question: AdminQuestionRow) {
@@ -1348,6 +1410,42 @@ async function removeBrandingLogo(slot: 'logo' | 'sponsor_logo') {
             </p>
           </div>
 
+          <div class="mt-2 border-l pl-3">
+            <p class="text-sm font-medium">
+              Attachments
+            </p>
+            <div v-for="attachment in question.attachments" :key="attachment.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>
+                {{ attachment.mimeType }} ({{ Math.ceil(attachment.sizeBytes / 1024) }} KB)
+                <a v-if="attachment.viewUrl" :href="attachment.viewUrl" target="_blank" rel="noopener noreferrer" class="underline">View</a>
+              </span>
+              <div class="flex gap-2">
+                <UButton size="xs" color="error" variant="ghost" label="Delete" :loading="attachmentActionId === attachment.id" @click="deleteAttachment(attachment.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="attachmentActionId === attachment.id" @click="permanentlyDeleteAttachment(attachment)" />
+              </div>
+            </div>
+            <p v-if="question.attachments.length === 0" class="text-sm text-gray-500">
+              No attachments yet.
+            </p>
+
+            <p class="mt-2 text-sm font-medium">
+              Deleted attachments
+            </p>
+            <div v-for="attachment in question.deletedAttachments" :key="attachment.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>
+                {{ attachment.mimeType }} ({{ Math.ceil(attachment.sizeBytes / 1024) }} KB)
+                <a v-if="attachment.viewUrl" :href="attachment.viewUrl" target="_blank" rel="noopener noreferrer" class="underline">View</a>
+              </span>
+              <div class="flex gap-2">
+                <UButton size="xs" label="Restore" :loading="attachmentActionId === attachment.id" @click="restoreAttachment(attachment.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="attachmentActionId === attachment.id" @click="permanentlyDeleteAttachment(attachment)" />
+              </div>
+            </div>
+            <p v-if="question.deletedAttachments.length === 0" class="text-sm text-gray-500">
+              No deleted attachments.
+            </p>
+          </div>
+
           <div class="mt-2 flex gap-2">
             <UButton
               size="xs"
@@ -1410,6 +1508,42 @@ async function removeBrandingLogo(slot: 'logo' | 'sponsor_logo') {
             </div>
             <p v-if="question.deletedReplies.length === 0" class="text-sm text-gray-500">
               No deleted replies.
+            </p>
+          </div>
+
+          <div class="mt-2 border-l pl-3">
+            <p class="text-sm font-medium">
+              Attachments
+            </p>
+            <div v-for="attachment in question.attachments" :key="attachment.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>
+                {{ attachment.mimeType }} ({{ Math.ceil(attachment.sizeBytes / 1024) }} KB)
+                <a v-if="attachment.viewUrl" :href="attachment.viewUrl" target="_blank" rel="noopener noreferrer" class="underline">View</a>
+              </span>
+              <div class="flex gap-2">
+                <UButton size="xs" color="error" variant="ghost" label="Delete" :loading="attachmentActionId === attachment.id" @click="deleteAttachment(attachment.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="attachmentActionId === attachment.id" @click="permanentlyDeleteAttachment(attachment)" />
+              </div>
+            </div>
+            <p v-if="question.attachments.length === 0" class="text-sm text-gray-500">
+              No attachments yet.
+            </p>
+
+            <p class="mt-2 text-sm font-medium">
+              Deleted attachments
+            </p>
+            <div v-for="attachment in question.deletedAttachments" :key="attachment.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>
+                {{ attachment.mimeType }} ({{ Math.ceil(attachment.sizeBytes / 1024) }} KB)
+                <a v-if="attachment.viewUrl" :href="attachment.viewUrl" target="_blank" rel="noopener noreferrer" class="underline">View</a>
+              </span>
+              <div class="flex gap-2">
+                <UButton size="xs" label="Restore" :loading="attachmentActionId === attachment.id" @click="restoreAttachment(attachment.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="attachmentActionId === attachment.id" @click="permanentlyDeleteAttachment(attachment)" />
+              </div>
+            </div>
+            <p v-if="question.deletedAttachments.length === 0" class="text-sm text-gray-500">
+              No deleted attachments.
             </p>
           </div>
 
