@@ -104,30 +104,74 @@ async function createEventManager() {
   }
 }
 
+interface ActionResponse {
+  success: boolean
+  data: null
+  error: string | null
+}
+
+async function callAdminAction(path: string, body?: Record<string, unknown>) {
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) {
+    errorMessage.value = 'Your session expired. Please log in again.'
+    return false
+  }
+
+  try {
+    const response = await $fetch<ActionResponse>(path, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body
+    })
+
+    if (!response.success) {
+      errorMessage.value = response.error ?? 'Something went wrong. Please try again.'
+      return false
+    }
+
+    return true
+  } catch (err) {
+    const data = (err as { data?: ActionResponse })?.data
+    errorMessage.value = data?.error ?? 'Something went wrong. Please try again.'
+    return false
+  }
+}
+
 async function setScope(row: EventManagerRow, scope: 'global' | 'restricted') {
-  await supabase.from('profiles').update({ em_scope: scope }).eq('id', row.id)
-  await loadData()
+  errorMessage.value = null
+
+  if (await callAdminAction(`/api/admin/event-managers/${row.id}/scope`, { scope })) {
+    await loadData()
+  }
 }
 
 async function toggleRevoked(row: EventManagerRow) {
-  const deleted_at = row.deleted_at ? null : new Date().toISOString()
-  await supabase.from('profiles').update({ deleted_at }).eq('id', row.id)
-  await loadData()
+  errorMessage.value = null
+
+  const path = row.deleted_at
+    ? `/api/admin/event-managers/${row.id}/restore`
+    : `/api/admin/event-managers/${row.id}/revoke`
+
+  if (await callAdminAction(path)) {
+    await loadData()
+  }
 }
 
 async function addAssignment(row: EventManagerRow, eventId: string) {
   if (!eventId) return
-  await supabase.from('event_manager_assignments').insert({
-    event_manager_id: row.id,
-    event_id: eventId,
-    granted_by: (await supabase.auth.getUser()).data.user?.id
-  })
-  await loadData()
+  errorMessage.value = null
+
+  if (await callAdminAction(`/api/admin/event-managers/${row.id}/assignments`, { eventId })) {
+    await loadData()
+  }
 }
 
 async function removeAssignment(assignmentId: string) {
-  await supabase.from('event_manager_assignments').update({ deleted_at: new Date().toISOString() }).eq('id', assignmentId)
-  await loadData()
+  errorMessage.value = null
+
+  if (await callAdminAction(`/api/admin/event-managers/assignments/${assignmentId}/remove`)) {
+    await loadData()
+  }
 }
 </script>
 

@@ -20,7 +20,12 @@ const ACTION_LABELS: Record<string, string> = {
   event_details_updated: 'Event details updated',
   event_settings_updated: 'Event settings updated',
   event_branding_updated: 'Event branding updated',
-  event_duplicated: 'Event duplicated'
+  event_duplicated: 'Event duplicated',
+  event_manager_scope_changed: 'Event Manager scope changed',
+  event_manager_revoked: 'Event Manager revoked',
+  event_manager_restored: 'Event Manager restored',
+  event_manager_assignment_added: 'Event Manager assignment added',
+  event_manager_assignment_removed: 'Event Manager assignment removed'
 }
 
 function actionLabel(action: string): string {
