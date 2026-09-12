@@ -206,6 +206,15 @@ interface QuestionRevision {
   createdAt: string
 }
 
+interface AdminReplyRow {
+  id: string
+  text: string
+  approvalStatus: string
+  visibility: string
+  displayName: string | null
+  createdAt: string
+}
+
 interface AdminQuestionRow {
   id: string
   text: string
@@ -216,6 +225,8 @@ interface AdminQuestionRow {
   archived: boolean
   displayName: string | null
   revisions: QuestionRevision[]
+  replies: AdminReplyRow[]
+  deletedReplies: AdminReplyRow[]
 }
 
 interface QuestionsResponse {
@@ -236,6 +247,12 @@ interface QuestionActionResponse {
   error: string | null
 }
 
+interface ReplyActionResponse {
+  success: boolean
+  data: { replyId: string } | null
+  error: string | null
+}
+
 const questions = ref<AdminQuestionRow[]>([])
 const deletedQuestions = ref<AdminQuestionRow[]>([])
 const questionsError = ref<string | null>(null)
@@ -244,6 +261,7 @@ const editingText = ref('')
 const savingQuestionId = ref<string | null>(null)
 const expandedRevisionsId = ref<string | null>(null)
 const questionActionId = ref<string | null>(null)
+const replyActionId = ref<string | null>(null)
 
 async function fetchQuestions() {
   const { data: { session } } = await supabase.auth.getSession()
@@ -308,6 +326,51 @@ function permanentlyDeleteQuestion(question: AdminQuestionRow) {
   const confirmed = window.confirm(`Permanently delete "${question.text}"? This cannot be undone.`)
   if (!confirmed) return
   performQuestionAction('permanent-delete', question.id)
+}
+
+async function performReplyAction(routeName: 'soft-delete' | 'restore' | 'permanent-delete', replyId: string) {
+  questionsError.value = null
+  replyActionId.value = replyId
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      questionsError.value = 'Your session expired. Please log in again.'
+      return
+    }
+
+    const response = await $fetch<ReplyActionResponse>(`/api/admin/events/${eventId}/replies/${routeName}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: { replyId }
+    })
+
+    if (!response.success) {
+      questionsError.value = response.error ?? 'Something went wrong. Please try again.'
+      return
+    }
+
+    await fetchQuestions()
+  } catch (err) {
+    const data = (err as { data?: ReplyActionResponse })?.data
+    questionsError.value = data?.error ?? 'Something went wrong. Please try again.'
+  } finally {
+    replyActionId.value = null
+  }
+}
+
+function deleteReply(replyId: string) {
+  performReplyAction('soft-delete', replyId)
+}
+
+function restoreReply(replyId: string) {
+  performReplyAction('restore', replyId)
+}
+
+function permanentlyDeleteReply(reply: AdminReplyRow) {
+  const confirmed = window.confirm(`Permanently delete "${reply.text}"? This cannot be undone.`)
+  if (!confirmed) return
+  performReplyAction('permanent-delete', reply.id)
 }
 
 function startEditingQuestion(question: AdminQuestionRow) {
@@ -1255,6 +1318,36 @@ async function removeBrandingLogo(slot: 'logo' | 'sponsor_logo') {
             </p>
           </div>
 
+          <div class="mt-2 border-l pl-3">
+            <p class="text-sm font-medium">
+              Replies
+            </p>
+            <div v-for="reply in question.replies" :key="reply.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>{{ reply.displayName ?? 'Anonymous' }} - {{ reply.approvalStatus }} - {{ reply.visibility }}: {{ reply.text }}</span>
+              <div class="flex gap-2">
+                <UButton size="xs" color="error" variant="ghost" label="Delete" :loading="replyActionId === reply.id" @click="deleteReply(reply.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="replyActionId === reply.id" @click="permanentlyDeleteReply(reply)" />
+              </div>
+            </div>
+            <p v-if="question.replies.length === 0" class="text-sm text-gray-500">
+              No replies yet.
+            </p>
+
+            <p class="mt-2 text-sm font-medium">
+              Deleted replies
+            </p>
+            <div v-for="reply in question.deletedReplies" :key="reply.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>{{ reply.displayName ?? 'Anonymous' }} - {{ reply.approvalStatus }} - {{ reply.visibility }}: {{ reply.text }}</span>
+              <div class="flex gap-2">
+                <UButton size="xs" label="Restore" :loading="replyActionId === reply.id" @click="restoreReply(reply.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="replyActionId === reply.id" @click="permanentlyDeleteReply(reply)" />
+              </div>
+            </div>
+            <p v-if="question.deletedReplies.length === 0" class="text-sm text-gray-500">
+              No deleted replies.
+            </p>
+          </div>
+
           <div class="mt-2 flex gap-2">
             <UButton
               size="xs"
@@ -1289,6 +1382,37 @@ async function removeBrandingLogo(slot: 'logo' | 'sponsor_logo') {
           <p class="mt-2">
             {{ question.text }}
           </p>
+
+          <div class="mt-2 border-l pl-3">
+            <p class="text-sm font-medium">
+              Replies
+            </p>
+            <div v-for="reply in question.replies" :key="reply.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>{{ reply.displayName ?? 'Anonymous' }} - {{ reply.approvalStatus }} - {{ reply.visibility }}: {{ reply.text }}</span>
+              <div class="flex gap-2">
+                <UButton size="xs" color="error" variant="ghost" label="Delete" :loading="replyActionId === reply.id" @click="deleteReply(reply.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="replyActionId === reply.id" @click="permanentlyDeleteReply(reply)" />
+              </div>
+            </div>
+            <p v-if="question.replies.length === 0" class="text-sm text-gray-500">
+              No replies yet.
+            </p>
+
+            <p class="mt-2 text-sm font-medium">
+              Deleted replies
+            </p>
+            <div v-for="reply in question.deletedReplies" :key="reply.id" class="mt-1 flex items-center justify-between gap-2 text-sm">
+              <span>{{ reply.displayName ?? 'Anonymous' }} - {{ reply.approvalStatus }} - {{ reply.visibility }}: {{ reply.text }}</span>
+              <div class="flex gap-2">
+                <UButton size="xs" label="Restore" :loading="replyActionId === reply.id" @click="restoreReply(reply.id)" />
+                <UButton size="xs" color="error" variant="ghost" label="Permanently delete" :loading="replyActionId === reply.id" @click="permanentlyDeleteReply(reply)" />
+              </div>
+            </div>
+            <p v-if="question.deletedReplies.length === 0" class="text-sm text-gray-500">
+              No deleted replies.
+            </p>
+          </div>
+
           <div class="mt-2 flex gap-2">
             <UButton
               size="xs"

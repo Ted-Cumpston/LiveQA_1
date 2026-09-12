@@ -61,6 +61,38 @@ export default defineEventHandler(async (event) => {
     revisionsByQuestionId.set(r.question_id, list)
   }
 
+  const { data: replies } = await supabase
+    .from('replies')
+    .select('id, question_id, text, created_at, attendee_id, approval_status, visibility, deleted_at')
+    .in('question_id', questionIds.length ? questionIds : [''])
+    .order('created_at', { ascending: true })
+
+  const replyAttendeeIds = [...new Set((replies ?? []).map(r => r.attendee_id).filter((id): id is string => id !== null))]
+
+  const { data: replyAuthors } = await supabase
+    .from('attendees')
+    .select('id, display_name')
+    .in('id', replyAttendeeIds.length ? replyAttendeeIds : [''])
+
+  const replyAuthorNameById = new Map((replyAuthors ?? []).map(a => [a.id, a.display_name]))
+
+  const activeRepliesByQuestionId = new Map<string, { id: string, text: string, approvalStatus: string, visibility: string, displayName: string | null, createdAt: string }[]>()
+  const deletedRepliesByQuestionId = new Map<string, { id: string, text: string, approvalStatus: string, visibility: string, displayName: string | null, createdAt: string }[]>()
+  for (const r of replies ?? []) {
+    const row = {
+      id: r.id,
+      text: r.text,
+      approvalStatus: r.approval_status,
+      visibility: r.visibility,
+      displayName: r.attendee_id ? replyAuthorNameById.get(r.attendee_id) ?? null : 'Moderator',
+      createdAt: r.created_at
+    }
+    const map = r.deleted_at ? deletedRepliesByQuestionId : activeRepliesByQuestionId
+    const list = map.get(r.question_id) ?? []
+    list.push(row)
+    map.set(r.question_id, list)
+  }
+
   const toRow = (q: typeof questions[number]) => ({
     id: q.id,
     text: q.text,
@@ -70,7 +102,9 @@ export default defineEventHandler(async (event) => {
     answered: q.answered,
     archived: q.archived,
     displayName: submitterNameById.get(q.attendee_id) ?? null,
-    revisions: revisionsByQuestionId.get(q.id) ?? []
+    revisions: revisionsByQuestionId.get(q.id) ?? [],
+    replies: activeRepliesByQuestionId.get(q.id) ?? [],
+    deletedReplies: deletedRepliesByQuestionId.get(q.id) ?? []
   })
 
   const result = questions.filter(q => !q.deleted_at).map(toRow)
