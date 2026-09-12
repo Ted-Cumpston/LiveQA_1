@@ -14,7 +14,13 @@ const ACTION_LABELS: Record<string, string> = {
   moderator_password_rotated: 'Moderator password rotated',
   branding_logo_uploaded: 'Branding logo uploaded',
   branding_logo_removed: 'Branding logo removed',
-  event_manager_created: 'Event Manager created'
+  event_manager_created: 'Event Manager created',
+  event_created: 'Event created',
+  event_published: 'Event published',
+  event_details_updated: 'Event details updated',
+  event_settings_updated: 'Event settings updated',
+  event_branding_updated: 'Event branding updated',
+  event_duplicated: 'Event duplicated'
 }
 
 function actionLabel(action: string): string {

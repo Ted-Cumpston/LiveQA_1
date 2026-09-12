@@ -668,6 +668,12 @@ onMounted(async () => {
   fetchBrandingLogos()
 })
 
+interface SaveDetailsResponse {
+  success: boolean
+  data: { slug: string, joinCode: string } | null
+  error: string | null
+}
+
 async function saveDetails() {
   detailsError.value = null
   detailsErrorField.value = null
@@ -695,29 +701,37 @@ async function saveDetails() {
   savingDetails.value = true
 
   try {
-    const { error, data } = await supabase
-      .from('events')
-      .update({ name: name.value.trim(), slug: normalizedSlug, join_code: normalizedJoinCode })
-      .eq('id', eventId)
-      .select('id')
-
-    if (error) {
-      detailsError.value = error.code === '23505'
-        ? 'That slug or join code is already in use. Please choose different values.'
-        : 'Something went wrong. Please try again.'
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      detailsError.value = 'Your session expired. Please log in again.'
       return
     }
 
-    if (!data?.length) {
-      detailsError.value = 'Something went wrong. Please try again.'
+    const response = await $fetch<SaveDetailsResponse>(`/api/admin/events/${eventId}/details`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: { name: name.value.trim(), slug: normalizedSlug, joinCode: normalizedJoinCode }
+    })
+
+    if (!response.success || !response.data) {
+      detailsError.value = response.error ?? 'Something went wrong. Please try again.'
       return
     }
 
-    slug.value = normalizedSlug
-    joinCode.value = normalizedJoinCode
+    slug.value = response.data.slug
+    joinCode.value = response.data.joinCode
+  } catch (err) {
+    const data = (err as { data?: SaveDetailsResponse })?.data
+    detailsError.value = data?.error ?? 'Something went wrong. Please try again.'
   } finally {
     savingDetails.value = false
   }
+}
+
+interface DuplicateEventResponse {
+  success: boolean
+  data: { eventId: string } | null
+  error: string | null
 }
 
 async function duplicateEvent() {
@@ -725,80 +739,26 @@ async function duplicateEvent() {
   duplicating.value = true
 
   try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
       duplicateError.value = 'Your session expired. Please log in again.'
       return
     }
 
-    const [settingsResult, attendeeTypesResult] = await Promise.all([
-      supabase
-        .from('event_settings')
-        .select('question_max_length, moderation_mode, hide_vote_counts')
-        .eq('event_id', eventId)
-        .single(),
-      supabase
-        .from('attendee_types')
-        .select('label')
-        .eq('event_id', eventId)
-        .is('deleted_at', null)
-    ])
+    const response = await $fetch<DuplicateEventResponse>(`/api/admin/events/${eventId}/duplicate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    })
 
-    const sourceSettings = settingsResult.data
-    const sourceLabels = (attendeeTypesResult.data ?? []).map(t => t.label)
-
-    let attempt = 0
-    while (attempt < 5) {
-      attempt++
-
-      const { data: newEvent, error } = await supabase
-        .from('events')
-        .insert({
-          name: `${name.value} (Copy)`,
-          slug: slugify(name.value),
-          join_code: generateJoinCode(),
-          created_by: user.id
-        })
-        .select('id')
-        .single()
-
-      if (!error && newEvent) {
-        const { error: settingsError } = await supabase
-          .from('event_settings')
-          .insert({
-            event_id: newEvent.id,
-            question_max_length: sourceSettings?.question_max_length ?? 500,
-            moderation_mode: sourceSettings?.moderation_mode ?? 'queue',
-            hide_vote_counts: sourceSettings?.hide_vote_counts ?? false
-          })
-
-        if (settingsError) {
-          duplicateError.value = 'Something went wrong. Please try again.'
-          return
-        }
-
-        if (sourceLabels.length) {
-          const { error: typesError } = await supabase
-            .from('attendee_types')
-            .insert(sourceLabels.map(label => ({ event_id: newEvent.id, label })))
-
-          if (typesError) {
-            duplicateError.value = 'Something went wrong. Please try again.'
-            return
-          }
-        }
-
-        await navigateTo(`/admin/events/${newEvent.id}`)
-        return
-      }
-
-      if (error?.code !== '23505') {
-        duplicateError.value = 'Something went wrong. Please try again.'
-        return
-      }
+    if (!response.success || !response.data) {
+      duplicateError.value = response.error ?? 'Something went wrong. Please try again.'
+      return
     }
 
-    duplicateError.value = 'Something went wrong. Please try again.'
+    await navigateTo(`/admin/events/${response.data.eventId}`)
+  } catch (err) {
+    const data = (err as { data?: DuplicateEventResponse })?.data
+    duplicateError.value = data?.error ?? 'Something went wrong. Please try again.'
   } finally {
     duplicating.value = false
   }
@@ -841,6 +801,12 @@ async function removeAttendeeType(id: string) {
   attendeeTypes.value = attendeeTypes.value.filter(t => t.id !== id)
 }
 
+interface SaveSettingsResponse {
+  success: boolean
+  data: null
+  error: string | null
+}
+
 async function saveSettings() {
   settingsError.value = null
   settingsErrorField.value = null
@@ -872,39 +838,40 @@ async function saveSettings() {
   savingSettings.value = true
 
   try {
-    const [settingsResult, eventResult] = await Promise.all([
-      supabase
-        .from('event_settings')
-        .update({
-          question_max_length: questionMaxLength.value,
-          moderation_mode: moderationMode.value,
-          hide_vote_counts: hideVoteCounts.value,
-          require_attendee_name: requireAttendeeName.value,
-          require_attendee_type: requireAttendeeType.value,
-          duplicate_check_strictness: duplicateCheckStrictness.value,
-          attendee_edit_window_minutes: attendeeEditWindowMinutes.value,
-          anonymity_mode: anonymityMode.value,
-          show_attendee_type: showAttendeeType.value,
-          attachment_max_count: attachmentMaxCount.value,
-          attachment_max_size_bytes: attachmentMaxSizeBytes.value,
-          abuse_protection_tier: abuseProtectionTier.value
-        })
-        .eq('event_id', eventId)
-        .select('event_id'),
-      supabase
-        .from('events')
-        .update({
-          submissions_open: submissionsOpen.value,
-          voting_open: votingOpen.value,
-          moderator_access_enabled: moderatorAccessEnabled.value
-        })
-        .eq('id', eventId)
-        .select('id')
-    ])
-
-    if (settingsResult.error || eventResult.error || !settingsResult.data?.length || !eventResult.data?.length) {
-      settingsError.value = 'Something went wrong. Please try again.'
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      settingsError.value = 'Your session expired. Please log in again.'
+      return
     }
+
+    const response = await $fetch<SaveSettingsResponse>(`/api/admin/events/${eventId}/settings`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: {
+        questionMaxLength: questionMaxLength.value,
+        moderationMode: moderationMode.value,
+        hideVoteCounts: hideVoteCounts.value,
+        requireAttendeeName: requireAttendeeName.value,
+        requireAttendeeType: requireAttendeeType.value,
+        duplicateCheckStrictness: duplicateCheckStrictness.value,
+        attendeeEditWindowMinutes: attendeeEditWindowMinutes.value,
+        anonymityMode: anonymityMode.value,
+        showAttendeeType: showAttendeeType.value,
+        attachmentMaxCount: attachmentMaxCount.value,
+        attachmentMaxSizeBytes: attachmentMaxSizeBytes.value,
+        abuseProtectionTier: abuseProtectionTier.value,
+        submissionsOpen: submissionsOpen.value,
+        votingOpen: votingOpen.value,
+        moderatorAccessEnabled: moderatorAccessEnabled.value
+      }
+    })
+
+    if (!response.success) {
+      settingsError.value = response.error ?? 'Something went wrong. Please try again.'
+    }
+  } catch (err) {
+    const data = (err as { data?: SaveSettingsResponse })?.data
+    settingsError.value = data?.error ?? 'Something went wrong. Please try again.'
   } finally {
     savingSettings.value = false
   }
@@ -950,6 +917,12 @@ async function saveModeratorPassword() {
   }
 }
 
+interface SaveBrandingResponse {
+  success: boolean
+  data: null
+  error: string | null
+}
+
 async function saveBranding() {
   brandingError.value = null
   accentColorError.value = null
@@ -970,20 +943,29 @@ async function saveBranding() {
   savingBranding.value = true
 
   try {
-    const { error, data } = await supabase
-      .from('event_settings')
-      .update({
-        accent_color: trimmedAccentColor || null,
-        background_color: trimmedBackgroundColor || null,
-        welcome_text: welcomeText.value.trim() || null,
-        theme_mode: themeMode.value
-      })
-      .eq('event_id', eventId)
-      .select('event_id')
-
-    if (error || !data?.length) {
-      brandingError.value = 'Something went wrong. Please try again.'
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      brandingError.value = 'Your session expired. Please log in again.'
+      return
     }
+
+    const response = await $fetch<SaveBrandingResponse>(`/api/admin/events/${eventId}/branding`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: {
+        accentColor: trimmedAccentColor,
+        backgroundColor: trimmedBackgroundColor,
+        welcomeText: welcomeText.value.trim(),
+        themeMode: themeMode.value
+      }
+    })
+
+    if (!response.success) {
+      brandingError.value = response.error ?? 'Something went wrong. Please try again.'
+    }
+  } catch (err) {
+    const data = (err as { data?: SaveBrandingResponse })?.data
+    brandingError.value = data?.error ?? 'Something went wrong. Please try again.'
   } finally {
     savingBranding.value = false
   }

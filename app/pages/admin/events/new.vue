@@ -11,11 +11,16 @@ interface TemplateOption {
   name: string
 }
 
-interface TemplateConfig {
-  questionMaxLength: number
-  moderationMode: 'immediate' | 'queue'
-  hideVoteCounts: boolean
-  attendeeTypes: string[]
+interface CreateEventResponse {
+  success: boolean
+  data: { eventId: string, slug: string, joinCode: string, attendeeTypes: AttendeeTypeRow[] } | null
+  error: string | null
+}
+
+interface PublishEventResponse {
+  success: boolean
+  data: null
+  error: string | null
 }
 
 const supabase = useSupabase()
@@ -65,90 +70,31 @@ async function createEvent() {
   creating.value = true
 
   try {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
       createError.value = 'Your session expired. Please log in again.'
       return
     }
 
-    let attempt = 0
-    while (attempt < 5) {
-      attempt++
+    const response = await $fetch<CreateEventResponse>('/api/admin/events', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: { name: name.value.trim(), templateId: selectedTemplateId.value }
+    })
 
-      const { data, error } = await supabase
-        .from('events')
-        .insert({
-          name: name.value.trim(),
-          slug: slugify(name.value),
-          join_code: generateJoinCode(),
-          created_by: user.id
-        })
-        .select('id, slug, join_code')
-        .single()
-
-      if (!error && data) {
-        if (selectedTemplateId.value) {
-          const { data: template } = await supabase
-            .from('event_templates')
-            .select('config')
-            .eq('id', selectedTemplateId.value)
-            .single()
-
-          const config = template?.config as TemplateConfig | undefined
-
-          const { error: settingsError } = await supabase
-            .from('event_settings')
-            .insert({
-              event_id: data.id,
-              question_max_length: config?.questionMaxLength ?? 500,
-              moderation_mode: config?.moderationMode ?? 'queue',
-              hide_vote_counts: config?.hideVoteCounts ?? false
-            })
-
-          if (settingsError) {
-            createError.value = 'Something went wrong. Please try again.'
-            return
-          }
-
-          if (config?.attendeeTypes?.length) {
-            const { data: insertedTypes, error: typesError } = await supabase
-              .from('attendee_types')
-              .insert(config.attendeeTypes.map(label => ({ event_id: data.id, label })))
-              .select('id, label')
-
-            if (typesError) {
-              createError.value = 'Something went wrong. Please try again.'
-              return
-            }
-
-            attendeeTypes.value = insertedTypes ?? []
-          }
-        } else {
-          const { error: settingsError } = await supabase
-            .from('event_settings')
-            .insert({ event_id: data.id })
-
-          if (settingsError) {
-            createError.value = 'Something went wrong. Please try again.'
-            return
-          }
-        }
-
-        eventId.value = data.id
-        eventSlug.value = data.slug
-        eventJoinCode.value = data.join_code
-        step.value = 'attendee-types'
-        return
-      }
-
-      if (error?.code !== '23505') {
-        createError.value = 'Something went wrong. Please try again.'
-        return
-      }
-      // 23505 = unique violation (slug or join code collision) - retry with fresh values.
+    if (!response.success || !response.data) {
+      createError.value = response.error ?? 'Something went wrong. Please try again.'
+      return
     }
 
-    createError.value = 'Something went wrong. Please try again.'
+    eventId.value = response.data.eventId
+    eventSlug.value = response.data.slug
+    eventJoinCode.value = response.data.joinCode
+    attendeeTypes.value = response.data.attendeeTypes
+    step.value = 'attendee-types'
+  } catch (err) {
+    const data = (err as { data?: CreateEventResponse })?.data
+    createError.value = data?.error ?? 'Something went wrong. Please try again.'
   } finally {
     creating.value = false
   }
@@ -296,18 +242,26 @@ async function publish() {
   publishing.value = true
 
   try {
-    const { error, data } = await supabase
-      .from('events')
-      .update({ status: 'live' })
-      .eq('id', eventId.value)
-      .select('id')
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      publishError.value = 'Your session expired. Please log in again.'
+      return
+    }
 
-    if (error || !data?.length) {
-      publishError.value = 'Something went wrong. Please try again.'
+    const response = await $fetch<PublishEventResponse>(`/api/admin/events/${eventId.value}/publish`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` }
+    })
+
+    if (!response.success) {
+      publishError.value = response.error ?? 'Something went wrong. Please try again.'
       return
     }
 
     await navigateTo('/admin/events')
+  } catch (err) {
+    const data = (err as { data?: PublishEventResponse })?.data
+    publishError.value = data?.error ?? 'Something went wrong. Please try again.'
   } finally {
     publishing.value = false
   }
