@@ -8,7 +8,7 @@ export default defineNuxtConfig({
     }
   },
   nitro: {
-    preset: 'node-server'
+    preset: process.env.NETLIFY ? 'netlify' : 'node-server'
   },
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],

@@ -2,7 +2,7 @@
 import type { AuthenticatedProfile } from '~/composables/useAuthSession'
 import type { RealtimeChannel } from '@supabase/supabase-js'
 
-definePageMeta({ middleware: 'admin' })
+definePageMeta({ middleware: 'admin', layout: 'admin' })
 
 interface AttendeeTypeRow {
   id: string
@@ -257,6 +257,22 @@ interface QuestionActionResponse {
   error: string | null
 }
 
+type ModerationAction =
+  | 'approve'
+  | 'reject'
+  | 'hide'
+  | 'publish'
+  | 'mark_answered'
+  | 'unmark_answered'
+  | 'archive'
+  | 'unarchive'
+
+interface ModerationActionResponse {
+  success: boolean
+  data: { questionId: string, approvalStatus: string, visibility: string, answered: boolean, archived: boolean } | null
+  error: string | null
+}
+
 interface ReplyActionResponse {
   success: boolean
   data: { replyId: string } | null
@@ -343,6 +359,52 @@ function permanentlyDeleteQuestion(question: AdminQuestionRow) {
   const confirmed = window.confirm(`Permanently delete "${question.text}"? This cannot be undone.`)
   if (!confirmed) return
   performQuestionAction('permanent-delete', question.id)
+}
+
+function availableModerationActions(question: AdminQuestionRow): { action: ModerationAction, label: string }[] {
+  const actions: { action: ModerationAction, label: string }[] = []
+
+  if (question.approvalStatus !== 'approved') actions.push({ action: 'approve', label: 'Approve' })
+  if (question.approvalStatus !== 'rejected') actions.push({ action: 'reject', label: 'Reject' })
+  if (question.approvalStatus === 'approved' && question.visibility !== 'public') actions.push({ action: 'publish', label: 'Publish' })
+  if (question.visibility !== 'hidden') actions.push({ action: 'hide', label: 'Hide' })
+  if (question.approvalStatus === 'approved' && !question.answered) actions.push({ action: 'mark_answered', label: 'Mark answered' })
+  if (question.answered) actions.push({ action: 'unmark_answered', label: 'Unmark answered' })
+  if (!question.archived) actions.push({ action: 'archive', label: 'Archive' })
+  if (question.archived) actions.push({ action: 'unarchive', label: 'Unarchive' })
+
+  return actions
+}
+
+async function performModerationAction(questionId: string, action: ModerationAction) {
+  questionsError.value = null
+  questionActionId.value = questionId
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) {
+      questionsError.value = 'Your session expired. Please log in again.'
+      return
+    }
+
+    const response = await $fetch<ModerationActionResponse>(`/api/admin/events/${eventId}/questions/moderate`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}` },
+      body: { questionId, action }
+    })
+
+    if (!response.success) {
+      questionsError.value = response.error ?? 'Something went wrong. Please try again.'
+      return
+    }
+
+    await fetchQuestions()
+  } catch (err) {
+    const data = (err as { data?: ModerationActionResponse })?.data
+    questionsError.value = data?.error ?? 'Something went wrong. Please try again.'
+  } finally {
+    questionActionId.value = null
+  }
 }
 
 async function performReplyAction(routeName: 'soft-delete' | 'restore' | 'permanent-delete', replyId: string) {
@@ -1444,6 +1506,17 @@ async function removeBrandingLogo(slot: 'logo' | 'sponsor_logo') {
             <p v-if="question.deletedAttachments.length === 0" class="text-sm text-gray-500">
               No deleted attachments.
             </p>
+          </div>
+
+          <div class="mt-2 flex flex-wrap gap-2">
+            <UButton
+              v-for="a in availableModerationActions(question)"
+              :key="a.action"
+              size="xs"
+              :label="a.label"
+              :loading="questionActionId === question.id"
+              @click="performModerationAction(question.id, a.action)"
+            />
           </div>
 
           <div class="mt-2 flex gap-2">

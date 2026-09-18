@@ -1,5 +1,5 @@
 <script setup lang="ts">
-definePageMeta({ middleware: 'admin' })
+definePageMeta({ middleware: 'admin', layout: 'admin' })
 
 interface EventRow {
   id: string
