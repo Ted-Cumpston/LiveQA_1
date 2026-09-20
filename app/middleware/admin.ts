@@ -1,5 +1,7 @@
+const PRE_AUTH_PATHS = ['/admin/login', '/admin/forgot-password', '/admin/reset-password']
+
 export default defineNuxtRouteMiddleware(async (to) => {
-  if (to.path === '/admin/login') return
+  if (PRE_AUTH_PATHS.includes(to.path)) return
 
   const supabase = useSupabase()
   const profile = await getAuthenticatedProfile(supabase)

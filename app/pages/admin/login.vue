@@ -52,6 +52,11 @@ async function onSubmit(payload: { data: { email: string, password: string } }) 
       <template v-if="errorMessage" #validation>
         <UAlert color="error" variant="subtle" :title="errorMessage" />
       </template>
+      <template #footer>
+        <NuxtLink to="/admin/forgot-password" class="text-sm underline">
+          Forgot password?
+        </NuxtLink>
+      </template>
     </UAuthForm>
   </div>
 </template>

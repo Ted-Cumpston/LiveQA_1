@@ -167,6 +167,10 @@ cleaned-up checkbox version before generating the project overview.
 
 - [x] 45. **Public landing page** - a `/` landing page (hero headline, subtext, single CTA) replacing the current placeholder; the CTA goes to `/admin` for a logged-in Administrator or to `/admin/login` otherwise
 
+**Account access**
+
+- [x] 46. **Admin password reset** - self-service "Forgot password" flow (request a reset email, then set a new password via the emailed link) for existing Administrator and Event Manager accounts; no public sign-up and no OAuth login
+
 ## Post-MVP (documented, not built now)
 
 Architecture should not preclude these, but none are scheduled features yet:
