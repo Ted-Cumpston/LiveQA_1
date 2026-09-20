@@ -163,6 +163,10 @@ cleaned-up checkbox version before generating the project overview.
   - [x] 44a. **Reply soft-delete, restore, and confirmed permanent delete** - add admin-facing display of a question's replies to `admin/events/[id].vue`, plus new soft-delete, restore, and permanent-delete server routes and audit logging for replies
   - [x] 44b. **Attachment restore and confirmed permanent delete** - add admin-facing display of a question's attachments to `admin/events/[id].vue`, plus new restore and permanent-delete server routes (and a symmetric admin soft-delete route, alongside the existing moderator soft-delete path) and audit logging for attachments
 
+**Public site**
+
+- [x] 45. **Public landing page** - a `/` landing page (hero headline, subtext, single CTA) replacing the current placeholder; the CTA goes to `/admin` for a logged-in Administrator or to `/admin/login` otherwise
+
 ## Post-MVP (documented, not built now)
 
 Architecture should not preclude these, but none are scheduled features yet:
