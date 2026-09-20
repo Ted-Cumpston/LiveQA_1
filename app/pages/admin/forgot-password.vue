@@ -18,7 +18,9 @@ async function onSubmit(payload: { data: { email: string } }) {
     })
 
     if (error) {
-      errorMessage.value = 'Something went wrong. Please try again.'
+      errorMessage.value = error.code === 'over_email_send_rate_limit'
+        ? 'You\'ve already requested a reset link recently. Please wait a bit and try again.'
+        : 'Something went wrong. Please try again.'
       return
     }
 
